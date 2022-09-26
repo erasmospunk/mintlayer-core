@@ -33,6 +33,7 @@ use common::{
     primitives::{time, Amount, BlockDistance, BlockHeight, Id, Idable},
 };
 
+use chainstate::chainstate_interface::ChainstateInterface;
 use chainstate::BlockError;
 use chainstate::ChainstateError;
 use chainstate::ConnectTransactionError;
@@ -72,12 +73,12 @@ fn output_lock_until_height() {
         assert_eq!(tf.best_block_index().block_height(), BlockHeight::new(1));
 
         // create another block, and spend the first input from the previous block
-        let prev_block_info = tf.block_info(1);
+        let prev_block_id = tf.block_id(1).into();
         tf.make_block_builder()
             .add_transaction(
                 TransactionBuilder::new()
                     .add_input(TxInput::new(
-                        prev_block_info.txns[0].0.clone(),
+                        prev_block_id,
                         0,
                         InputWitness::NoSignature(None),
                     ))
@@ -225,12 +226,12 @@ fn output_lock_for_block_count() {
         assert_eq!(tf.best_block_index().block_height(), BlockHeight::new(1));
 
         // create another block, and spend the first input from the previous block
-        let prev_block_info = tf.best_block_info();
+        let prev_block_id = tf.best_block_id().into();
         tf.make_block_builder()
             .add_transaction(
                 TransactionBuilder::new()
                     .add_input(TxInput::new(
-                        prev_block_info.txns[0].0.clone(),
+                        prev_block_id,
                         0,
                         InputWitness::NoSignature(None),
                     ))
@@ -695,13 +696,13 @@ fn add_block_with_locked_output(
 ) -> TxInput {
     // Find the last block.
     let current_height = tf.best_block_index().block_height();
-    let prev_block_info = tf.block_info(current_height.into());
+    let prev_block_source_id = tf.block_id(current_height.into()).into();
 
     tf.make_block_builder()
         .add_transaction(
             TransactionBuilder::new()
                 .add_input(TxInput::new(
-                    prev_block_info.txns[0].0.clone(),
+                    prev_block_source_id,
                     0,
                     InputWitness::NoSignature(None),
                 ))
@@ -719,9 +720,8 @@ fn add_block_with_locked_output(
     let new_height = (current_height + BlockDistance::new(1)).unwrap();
     assert_eq!(tf.best_block_index().block_height(), new_height);
 
-    let block_info = tf.block_info(new_height.into());
     TxInput::new(
-        block_info.txns[0].0.clone(),
+        tf.block_id(new_height.into()).into(),
         1,
         InputWitness::NoSignature(None),
     )

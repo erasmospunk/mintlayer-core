@@ -19,18 +19,19 @@ use crate::detail::BlockSource;
 use crate::ChainstateConfig;
 use chainstate_types::{BlockIndex, GenBlockIndex};
 use common::chain::tokens::TokenAuxiliaryData;
-use common::chain::Transaction;
 use common::chain::TxInput;
 use common::chain::{
     block::{timestamp::BlockTimestamp, Block, BlockHeader, BlockReward, GenBlock},
     tokens::{RPCTokenInfo, TokenId},
     ChainConfig, OutPointSourceId, TxMainChainIndex,
 };
+use common::chain::{OutPoint, Transaction};
 use common::primitives::{Amount, BlockHeight, Id};
 use utils::eventhandler::EventHandler;
 
 use crate::{ChainstateError, ChainstateEvent};
 use chainstate_types::Locator;
+use utxo::Utxo;
 
 pub trait ChainstateInterface: Send {
     fn subscribe_to_events(&mut self, handler: Arc<dyn Fn(ChainstateEvent) + Send + Sync>);
@@ -134,4 +135,7 @@ pub trait ChainstateInterface: Send {
 
     /// Returns a list of all blocks in the block tree, including orphans. The length cannot be predicted before the call
     fn get_block_id_tree_as_list(&self) -> Result<Vec<Id<Block>>, ChainstateError>;
+
+    /// Returns the UTXO for a specified OutPoint
+    fn utxo(&self, outpoint: &OutPoint) -> Option<Utxo>;
 }

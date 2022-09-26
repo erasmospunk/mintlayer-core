@@ -20,7 +20,6 @@ use std::{
 
 use chainstate_types::Locator;
 use chainstate_types::{BlockIndex, GenBlockIndex};
-use common::chain::Transaction;
 use common::chain::TxInput;
 use common::chain::{
     block::{timestamp::BlockTimestamp, BlockReward},
@@ -28,6 +27,7 @@ use common::chain::{
     tokens::TokenAuxiliaryData,
     OutPointSourceId, TxMainChainIndex,
 };
+use common::chain::{OutPoint, Transaction};
 use common::{
     chain::{
         block::BlockHeader,
@@ -37,6 +37,7 @@ use common::{
     primitives::{BlockHeight, Id},
 };
 use utils::eventhandler::EventHandler;
+use utxo::Utxo;
 
 use crate::ChainstateConfig;
 use crate::{
@@ -225,6 +226,10 @@ impl<
 
     fn get_block_id_tree_as_list(&self) -> Result<Vec<Id<Block>>, ChainstateError> {
         self.deref().get_block_id_tree_as_list()
+    }
+
+    fn utxo(&self, outpoint: &OutPoint) -> Option<Utxo> {
+        self.deref().utxo(outpoint)
     }
 }
 

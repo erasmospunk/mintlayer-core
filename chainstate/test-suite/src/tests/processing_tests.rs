@@ -16,6 +16,7 @@
 use std::sync::Arc;
 use std::{sync::atomic::Ordering, time::Duration};
 
+use chainstate::chainstate_interface::ChainstateInterface;
 use chainstate::{
     make_chainstate, BlockError, BlockSource, ChainstateConfig, ChainstateError, CheckBlockError,
     CheckBlockTransactionsError, ConnectTransactionError, OrphanCheckError,
@@ -25,7 +26,7 @@ use chainstate_test_framework::{
     TransactionBuilder,
 };
 use chainstate_types::{GenBlockIndex, PropertyQueryError};
-use common::chain::Transaction;
+use common::chain::{OutPoint, Transaction};
 use common::primitives::BlockDistance;
 use common::{
     chain::{
@@ -47,6 +48,7 @@ use crypto::{
 };
 use rstest::rstest;
 use test_utils::random::{make_seedable_rng, Seed};
+use utxo::UtxoSource;
 
 #[rstest]
 #[trace]
@@ -293,6 +295,125 @@ fn orphans_chains(#[case] seed: Seed) {
     });
 }
 
+// #[rstest]
+// #[trace]
+// #[case(Seed::from_entropy())]
+// fn spend_inputs_simple_utxo(#[case] seed: Seed) {
+//     utils::concurrency::model(move || {
+//         let mut rng = make_seedable_rng(seed);
+//         let mut tf = TestFramework::default();
+//
+//         // Ensure that Genesis's UTXOs are present in the set
+//         let genesis_id: OutPointSourceId = tf.genesis().get_id().into();
+//         for (idx, txo) in WithId::<Genesis>::get(&tf.genesis()).utxos().iter().enumerate() {
+//             let utxo = tf.chainstate.utxo(&OutPoint::new(genesis_id.clone(), idx as u32)).unwrap();
+//
+//             // assert_eq!(utxo.is_block_reward(), true);
+//             assert_eq!(utxo.output(), txo);
+//             assert_eq!(utxo.source(), &UtxoSource::Blockchain(BlockHeight::new(0)));
+//         }
+//
+//         // Create a new block
+//         let block = tf
+//             .make_block_builder()
+//             .with_reward(vec![
+//                 TxOutput::new(
+//                     OutputValue::Coin(Amount::from_atoms(10000)),
+//                     OutputPurpose::LockThenTransfer(
+//                         anyonecanspend_address(),
+//                         OutputTimeLock::ForBlockCount(5),
+//                     ),
+//                 ),
+//                 TxOutput::new(
+//                     OutputValue::Coin(Amount::from_atoms(20000)),
+//                     OutputPurpose::LockThenTransfer(
+//                         anyonecanspend_address(),
+//                         OutputTimeLock::ForBlockCount(10),
+//                     ),
+//                 ),
+//             ])
+//             .add_test_transaction(&mut rng)
+//             .build();
+//
+//         // Check that the rewards are not in the UTXO set
+//         check_outputs_not_in_utxo(
+//             &tf,
+//             block.get_id().into(),
+//             block.block_reward().outputs().len() as u32,
+//         );
+//         assert_eq!(
+//             tf.chainstate.get_mainchain_tx_index(&block.get_id().into()).unwrap(),
+//             None
+//         );
+//         // Check that all transactions are not in the main chain and UTXO set
+//         for tx in block.transactions() {
+//             check_outputs_not_in_utxo(&tf, tx.get_id().into(), tx.outputs().len() as u32);
+//         }
+//
+//         // Process the second block
+//         tf.process_block(block.clone(), BlockSource::Local).unwrap();
+//         assert_eq!(tf.best_block_id(), <Id<GenBlock>>::from(block.get_id()));
+//
+//         // Check that the transactions are in the main-chain and ensure that the connected previous
+//         // outputs are spent.
+//
+//         // Check that the genesis UTXOs are spent
+//
+//         for tx in block.transactions() {
+//             let tx_id = tx.get_id();
+//             // All inputs must spend a corresponding output
+//             for tx_in in tx.inputs() {
+//                 let outpoint = tx_in.outpoint();
+//                 let prev_out_tx_index =
+//                     tf.chainstate.get_mainchain_tx_index(&outpoint.tx_id()).unwrap().unwrap();
+//                 assert_eq!(
+//                     prev_out_tx_index.get_spent_state(outpoint.output_index()).unwrap(),
+//                     OutputSpentState::SpentBy(tx_id.into())
+//                 );
+//                 assert_eq!(tf.chainstate.utxo(outpoint), None)
+//             }
+//             // All the outputs of this transaction should be unspent
+//             check_outputs_in_utxo(
+//                 &tf,
+//                 tx_id.into(),
+//                 &tx.outputs(),
+//                 false,
+//                 UtxoSource::Blockchain(BlockHeight::new(1)),
+//             );
+//         }
+//     });
+// }
+//
+// /// Check that the outputs are present in tx index and the UTXO set
+// fn check_outputs_in_utxo(
+//     tf: &TestFramework,
+//     id: OutPointSourceId,
+//     outputs: &Vec<TxOutput>,
+//     is_block_reward: bool,
+//     utxo_source: UtxoSource,
+// ) {
+//     let tx_index = tf.chainstate.get_mainchain_tx_index(&id).unwrap().unwrap();
+//     for (idx, txo) in outputs.iter().enumerate() {
+//         let idx = idx as u32;
+//         assert_eq!(
+//             tx_index.get_spent_state(idx).unwrap(),
+//             OutputSpentState::Unspent
+//         );
+//         let utxo = tf.chainstate.utxo(&OutPoint::new(id.clone(), idx)).unwrap();
+//         assert_eq!(utxo.is_block_reward(), is_block_reward);
+//         assert_eq!(utxo.output(), txo);
+//         assert_eq!(utxo.source(), &utxo_source);
+//     }
+// }
+//
+// /// Check that the outputs are not present in the tx index and the UTXO set
+// fn check_outputs_not_in_utxo(tf: &TestFramework, id: OutPointSourceId, num_outputs: u32) {
+//     assert_eq!(tf.chainstate.get_mainchain_tx_index(&id).unwrap(), None);
+//     for idx in 0..num_outputs {
+//         assert_eq!(tf.chainstate.utxo(&OutPoint::new(id.clone(), idx)), None)
+//     }
+// }
+
 #[rstest]
 #[trace]
 #[case(Seed::from_entropy())]
@@ -329,14 +450,20 @@ fn spend_inputs_simple(#[case] seed: Seed) {
                     prev_out_tx_index.get_spent_state(outpoint.output_index()).unwrap(),
                     OutputSpentState::SpentBy(tx_id.into())
                 );
+                assert_eq!(tf.chainstate.utxo(outpoint), None)
             }
             // All the outputs of this transaction should be unspent
             let tx_index = tf.chainstate.get_mainchain_tx_index(&tx_id.into()).unwrap().unwrap();
-            for idx in 0..tx.outputs().len() as u32 {
+            for (idx, txo) in tx.outputs().iter().enumerate() {
+                let idx = idx as u32;
                 assert_eq!(
                     tx_index.get_spent_state(idx).unwrap(),
                     OutputSpentState::Unspent
                 );
+                let utxo = tf.chainstate.utxo(&OutPoint::new(tx_id.into(), idx)).unwrap();
+                assert_eq!(utxo.is_block_reward(), false);
+                assert_eq!(utxo.output(), txo);
+                assert_eq!(utxo.source(), &UtxoSource::Blockchain(BlockHeight::new(1)));
             }
         }
     });
@@ -350,15 +477,12 @@ fn transaction_processing_order(#[case] seed: Seed) {
         let mut rng = make_seedable_rng(seed);
         let mut tf = TestFramework::default();
 
-        // Genesis reward UTXO
-        let (utx, utxo) = &tf.best_block_info().txns[0];
-
         // Transaction that spends the genesis reward
         let tx1 = Transaction::new(
             0,
-            vec![TxInput::new(utx.clone(), 0, empty_witness(&mut rng))],
+            vec![TxInput::new(tf.genesis().get_id().into(), 0, empty_witness(&mut rng))],
             vec![TxOutput::new(
-                utxo[0].value().clone(),
+                tf.genesis().utxos()[0].value().clone(),
                 OutputPurpose::Transfer(anyonecanspend_address()),
             )],
             0,

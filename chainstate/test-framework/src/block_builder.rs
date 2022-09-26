@@ -111,9 +111,8 @@ impl<'f> BlockBuilder<'f> {
     ) -> Self {
         let parent = TestBlockInfo::from_id(&self.framework.chainstate, parent);
         let (mut inputs, outputs): (Vec<_>, Vec<_>) = self.make_test_inputs_outputs(parent, rng);
-        let spend_from = TestBlockInfo::from_id(&self.framework.chainstate, spend_from.into());
         inputs.push(TxInput::new(
-            spend_from.txns[0].0.clone(),
+            spend_from.into(),
             0,
             InputWitness::NoSignature(None),
         ));

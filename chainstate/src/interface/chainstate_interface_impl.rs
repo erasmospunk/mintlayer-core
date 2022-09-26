@@ -22,7 +22,7 @@ use common::chain::block::BlockReward;
 use common::chain::config::ChainConfig;
 use common::chain::tokens::OutputValue;
 use common::chain::tokens::TokenAuxiliaryData;
-use common::chain::TxInput;
+use common::chain::{OutPoint, TxInput};
 use common::chain::{OutPointSourceId, Transaction, TxMainChainIndex};
 use common::primitives::Amount;
 
@@ -35,7 +35,7 @@ use common::{
     primitives::{id::WithId, BlockHeight, Id},
 };
 use utils::eventhandler::EventHandler;
-use utxo::UtxosView;
+use utxo::{Utxo, UtxosView};
 
 use crate::ChainstateConfig;
 use crate::{
@@ -339,5 +339,11 @@ impl<S: BlockchainStorage> ChainstateInterface for ChainstateInterfaceImpl<S> {
             .query()
             .get_block_id_tree_as_list()
             .map_err(ChainstateError::FailedToReadProperty)
+    }
+
+    fn utxo(&self, outpoint: &OutPoint) -> Option<Utxo> {
+        let chainstate_ref = self.chainstate.make_db_tx_ro();
+        let utxo_view = chainstate_ref.make_utxo_view();
+        utxo_view.utxo(outpoint)
     }
 }
