@@ -20,9 +20,10 @@ use common::{
     chain::{Block, GenBlock, OutPoint},
     primitives::Id,
 };
+use std::collections::btree_map::Iter;
 use std::collections::BTreeMap;
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UtxosDBInMemoryImpl {
     store: BTreeMap<OutPoint, Utxo>,
     undo_store: BTreeMap<Id<Block>, BlockUndo>,
@@ -36,6 +37,10 @@ impl UtxosDBInMemoryImpl {
             undo_store: BTreeMap::new(),
             best_block_id: best_block,
         }
+    }
+
+    pub fn iter_utxos(&self) -> Iter<'_, OutPoint, Utxo> {
+        self.store.iter()
     }
 }
 

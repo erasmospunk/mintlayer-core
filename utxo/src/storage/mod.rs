@@ -101,8 +101,8 @@ impl<'a, S: UtxosStorageWrite> UtxosDBMut<'a, S> {
     }
 }
 
-#[cfg(test)]
-mod in_memory;
+// #[cfg(test)]
+pub mod in_memory;
 
 #[cfg(test)]
 mod test;

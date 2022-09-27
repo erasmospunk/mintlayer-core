@@ -24,6 +24,7 @@ mod view;
 pub use crate::{
     cache::{ConsumedUtxoCache, UtxosCache},
     error::Error,
+    storage::in_memory::UtxosDBInMemoryImpl,
     storage::{UtxosDB, UtxosDBMut, UtxosStorageRead, UtxosStorageWrite},
     undo::{BlockRewardUndo, BlockUndo, TxUndo},
     utxo::{Utxo, UtxoSource},
@@ -32,3 +33,6 @@ pub use crate::{
 
 #[cfg(test)]
 mod tests;
+
+// #[cfg(test)]
+// pub use crate::storage::in_memory::UtxosDBInMemoryImpl;

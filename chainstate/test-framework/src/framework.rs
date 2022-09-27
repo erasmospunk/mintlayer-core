@@ -17,14 +17,15 @@ use chainstate::chainstate_interface::ChainstateInterface;
 use chainstate::ChainstateError;
 use common::chain::signature::inputsig::InputWitness;
 use common::chain::tokens::TokenData;
-use common::chain::TxInput;
 use common::chain::TxOutput;
+use common::chain::{OutPoint, TxInput};
 use common::primitives::id::WithId;
 use common::{
     chain::{tokens::OutputValue, Block, Destination, GenBlock, Genesis, OutputPurpose},
     primitives::{Amount, Id, Idable},
 };
 use crypto::random::Rng;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::{BlockBuilder, TestFrameworkBuilder};
@@ -157,15 +158,15 @@ impl TestFramework {
     }
 }
 
-fn create_utxo_data(
+pub(crate) fn create_utxo_data(
     chainstate: &TestChainstate,
     outsrc: OutPointSourceId,
-    index: usize,
+    index: u32,
     output: &TxOutput,
     rng: &mut impl Rng,
 ) -> Option<(TxInput, TxOutput)> {
     Some((
-        TxInput::new(outsrc.clone(), index as u32, empty_witness(rng)),
+        TxInput::new(outsrc.clone(), index, empty_witness(rng)),
         match output.value() {
             OutputValue::Coin(output_value) => {
                 let spent_value = Amount::from_atoms(rng.gen_range(0..output_value.into_atoms()));
@@ -221,56 +222,58 @@ pub fn anyonecanspend_address() -> Destination {
     Destination::AnyoneCanSpend
 }
 
-pub(crate) fn create_new_outputs(
-    chainstate: &TestChainstate,
-    srcid: OutPointSourceId,
-    outs: &[TxOutput],
-    rng: &mut impl Rng,
-) -> Vec<(TxInput, TxOutput)> {
-    outs.iter()
-        .enumerate()
-        .filter_map(move |(index, output)| {
-            create_utxo_data(chainstate, srcid.clone(), index, output, rng)
-        })
-        .collect()
-}
 impl Default for TestFramework {
     fn default() -> Self {
         Self::builder().build()
     }
 }
 use common::chain::OutPointSourceId;
+use utxo::{Utxo, UtxoSource, UtxosDBInMemoryImpl};
 // TODO: Replace by a proper UTXO set abstraction
 // (https://github.com/mintlayer/mintlayer-core/issues/312).
 #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct TestBlockInfo<'a> {
 pub struct TestBlockInfo {
-    pub txns: Vec<(OutPointSourceId, Vec<TxOutput>)>,
-    // pub utxo: UtxosCache<'a>,
+    pub utxo: UtxosDBInMemoryImpl,
     pub id: Id<GenBlock>,
 }
 
 impl TestBlockInfo {
     pub fn from_block(blk: &Block) -> Self {
-        let txns = blk
-            .transactions()
-            .iter()
-            .map(|tx| {
-                (
-                    OutPointSourceId::Transaction(tx.get_id()),
-                    tx.outputs().clone(),
-                )
-            })
-            .collect();
-        let id = blk.get_id().into();
-        Self { txns, id }
+        // Fill a map with OutPoints and Utxo pairs
+        let mut existing_utxo = BTreeMap::new();
+        for tx in blk.transactions() {
+            for (idx, txo) in tx.outputs().iter().enumerate() {
+                existing_utxo.insert(
+                    OutPoint::new(tx.get_id().into(), idx as u32),
+                    // TODO: What should be the UtxoSource here?
+                    Utxo::new(txo.clone(), false, UtxoSource::Mempool),
+                );
+            }
+        }
+
+        let id: Id<GenBlock> = blk.get_id().into();
+        let utxo = UtxosDBInMemoryImpl::new(id.clone(), existing_utxo);
+
+        Self { utxo, id }
     }
 
     pub fn from_genesis(genesis: &Genesis) -> Self {
         let id: Id<GenBlock> = genesis.get_id().into();
-        let outsrc = OutPointSourceId::BlockReward(id);
-        let txns = vec![(outsrc, genesis.utxos().to_vec())];
-        Self { txns, id }
+        // Fill a map with OutPoints and Utxo pairs
+        let mut existing_utxo = BTreeMap::new();
+        for (idx, txo) in genesis.utxos().iter().enumerate() {
+            existing_utxo.insert(
+                OutPoint::new(id.into(), idx as u32),
+                Utxo::new(
+                    txo.clone(),
+                    false,
+                    UtxoSource::Blockchain(BlockHeight::zero()),
+                ),
+            );
+        }
+
+        let utxo = UtxosDBInMemoryImpl::new(id.clone(), existing_utxo);
+        Self { utxo, id }
     }
 
     pub fn from_id(cs: &TestChainstate, id: Id<GenBlock>) -> Self {

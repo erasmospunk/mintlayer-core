@@ -23,7 +23,7 @@ use common::{
 };
 use crypto::random::Rng;
 
-use crate::framework::create_new_outputs;
+use crate::framework::create_utxo_data;
 use crate::framework::TestBlockInfo;
 use crate::TestFramework;
 use chainstate::{BlockSource, ChainstateError};
@@ -182,9 +182,17 @@ impl<'f> BlockBuilder<'f> {
         rng: &mut impl Rng,
     ) -> (Vec<TxInput>, Vec<TxOutput>) {
         parent
-            .txns
-            .into_iter()
-            .flat_map(|(s, o)| create_new_outputs(&self.framework.chainstate, s, &o, rng))
+            .utxo
+            .iter_utxos()
+            .filter_map(|(o, u)| {
+                create_utxo_data(
+                    &self.framework.chainstate,
+                    o.tx_id(),
+                    o.output_index(),
+                    u.output(),
+                    rng,
+                )
+            })
             .unzip()
     }
 }

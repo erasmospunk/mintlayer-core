@@ -35,8 +35,9 @@ use chainstate_types::BlockIndex;
 use chainstate_types::GenBlockIndex;
 use common::chain::block::timestamp::BlockTimestamp;
 use common::chain::tokens::TokenAuxiliaryData;
-use common::chain::ChainConfig;
+use common::chain::{ChainConfig, OutPoint};
 use utils::eventhandler::EventHandler;
+use utxo::Utxo;
 
 use super::chainstate_interface::ChainstateInterface;
 
@@ -119,5 +120,6 @@ mockall::mock! {
         ) -> Result<Vec<Option<Amount>>, ChainstateError>;
         fn get_mainchain_blocks_list(&self) -> Result<Vec<Id<Block>>, ChainstateError>;
         fn get_block_id_tree_as_list(&self) -> Result<Vec<Id<Block>>, ChainstateError>;
+        fn utxo(&self, outpoint: &OutPoint) -> Option<Utxo>;
     }
 }
