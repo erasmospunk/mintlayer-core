@@ -10,3 +10,4 @@ license = "MIT"
 [dependencies]
 logging = { path = "../logging" }
 wallet-storage = {path = './storage'}
+thiserror.workspace = true

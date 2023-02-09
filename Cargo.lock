@@ -4201,6 +4201,7 @@ name = "wallet"
 version = "0.1.0"
 dependencies = [
  "logging",
+ "thiserror",
  "wallet-storage",
 ]
 

@@ -21,6 +21,7 @@ pub mod schema;
 
 use common::chain::OutPoint;
 pub use internal::Store;
+use std::path::PathBuf;
 
 use utxo::Utxo;
 
@@ -77,3 +78,16 @@ pub trait Transactional<'t> {
 }
 
 pub trait WalletStorage: WalletStorageWrite + for<'tx> Transactional<'tx> + Send {}
+
+impl Store<storage_sqlite::Sqlite> {
+    /// Create a default storage (mostly for testing, may want to remove this later)
+    pub fn new_in_memory() -> crate::Result<Self> {
+        Self::new(storage_sqlite::Sqlite::new_in_memory())
+    }
+
+    pub fn new_from_path(path: PathBuf) -> crate::Result<Self> {
+        Self::new(storage_sqlite::Sqlite::new(path))
+    }
+}
+
+pub type WalletStorageImpl = Store<storage_sqlite::Sqlite>;
