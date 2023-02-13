@@ -4210,7 +4210,6 @@ version = "0.1.0"
 dependencies = [
  "common",
  "crypto",
- "rstest",
  "serialization",
  "storage",
  "storage-sqlite",
