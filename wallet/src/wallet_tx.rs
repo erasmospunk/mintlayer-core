@@ -13,5 +13,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod wallet;
-mod wallet_tx;
+use common::chain::Transaction;
+
+pub enum Pool {
+    /// Unspent transaction
+    Unspent,
+    /// Spent transaction
+    Spent, // spent in best chainPool
+    /// Double-spent in a fork
+    Conflicted,
+    /// Unconfirmed transaction
+    Unconfirmed,
+}
+
+pub struct WalletTx {
+    pool: Pool,
+    tx: Transaction,
+}
+
+// TODO implement serialization for WalletTx

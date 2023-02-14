@@ -15,7 +15,10 @@
 
 use std::collections::BTreeMap;
 
-use common::chain::OutPoint;
+use common::{
+    chain::{OutPoint, Transaction},
+    primitives::Id,
+};
 use utxo::Utxo;
 
 use crate::{
@@ -103,6 +106,7 @@ impl<B: storage::Backend> WalletStorageRead for Store<B> {
     delegate_to_transaction! {
         fn get_storage_version(&self) -> crate::Result<u32>;
         fn get_utxo(&self, outpoint: &OutPoint) -> crate::Result<Option<Utxo>>;
+        fn get_transaction(&self, id: &Id<Transaction>) -> crate::Result<Option<Transaction>>;
     }
 }
 
@@ -111,6 +115,7 @@ impl<B: storage::Backend> WalletStorageWrite for Store<B> {
         fn set_storage_version(&mut self, version: u32) -> crate::Result<()>;
         fn set_utxo(&mut self, outpoint: &OutPoint, entry: Utxo) -> crate::Result<()>;
         fn del_utxo(&mut self, outpoint: &OutPoint) -> crate::Result<()>;
+        fn set_transaction(&mut self, id: &Id<Transaction>, tx: &Transaction) -> crate::Result<()>;
     }
 }
 

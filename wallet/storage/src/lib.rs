@@ -19,7 +19,8 @@ mod internal;
 mod is_transaction_seal;
 pub mod schema;
 
-use common::chain::OutPoint;
+use common::chain::{OutPoint, Transaction};
+use common::primitives::Id;
 pub use internal::Store;
 use std::path::PathBuf;
 
@@ -32,16 +33,18 @@ pub type Error = storage::Error;
 /// Queries on persistent wallet data
 pub trait WalletStorageRead {
     /// Get storage version
-    fn get_storage_version(&self) -> crate::Result<u32>;
+    fn get_storage_version(&self) -> Result<u32>;
     fn get_utxo(&self, outpoint: &OutPoint) -> Result<Option<Utxo>>;
+    fn get_transaction(&self, id: &Id<Transaction>) -> Result<Option<Transaction>>;
 }
 
 /// Modifying operations on persistent wallet data
 pub trait WalletStorageWrite: WalletStorageRead {
     /// Set storage version
-    fn set_storage_version(&mut self, version: u32) -> crate::Result<()>;
+    fn set_storage_version(&mut self, version: u32) -> Result<()>;
     fn set_utxo(&mut self, outpoint: &OutPoint, entry: Utxo) -> Result<()>;
     fn del_utxo(&mut self, outpoint: &OutPoint) -> Result<()>;
+    fn set_transaction(&mut self, id: &Id<Transaction>, tx: &Transaction) -> Result<()>;
 }
 
 /// Marker trait for types where read/write operations are run in a transaction
