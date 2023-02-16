@@ -14,7 +14,10 @@
 // limitations under the License.
 
 use common::chain::Transaction;
+use common::primitives::Id;
+use std::collections::BTreeSet;
 
+#[allow(dead_code)] // TODO remove
 pub enum Pool {
     /// Unspent transaction
     Unspent,
@@ -26,6 +29,15 @@ pub enum Pool {
     Unconfirmed,
 }
 
+#[allow(dead_code)] // TODO remove
+pub struct TxPools {
+    pub(crate) unspent: BTreeSet<Id<Transaction>>,
+    pub(crate) spent: BTreeSet<Id<Transaction>>,
+    pub(crate) pending: BTreeSet<Id<Transaction>>,
+    pub(crate) dead: BTreeSet<Id<Transaction>>,
+}
+
+#[allow(dead_code)] // TODO remove
 pub struct WalletTx {
     pool: Pool,
     tx: Transaction,

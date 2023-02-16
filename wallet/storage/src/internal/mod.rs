@@ -51,6 +51,13 @@ impl<B: storage::Backend> Store<B> {
         let db_tx = self.transaction_ro()?;
         db_tx.0.get::<db::DBUtxo, _>().prefix_iter_decoded(&()).map(Iterator::collect)
     }
+
+    /// Collect and return all transactions from the storage
+    #[allow(clippy::let_and_return)]
+    pub fn read_transactions(&self) -> crate::Result<BTreeMap<Id<Transaction>, Transaction>> {
+        let db_tx = self.transaction_ro()?;
+        db_tx.0.get::<db::DBTxs, _>().prefix_iter_decoded(&()).map(Iterator::collect)
+    }
 }
 
 impl<B: storage::Backend> Clone for Store<B>

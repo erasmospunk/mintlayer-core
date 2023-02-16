@@ -24,6 +24,7 @@ use common::primitives::Id;
 pub use internal::Store;
 use std::path::PathBuf;
 
+use crate::internal::StoreTxRw;
 use utxo::Utxo;
 
 /// Possibly failing result of wallet storage query
@@ -94,3 +95,4 @@ impl Store<storage_sqlite::Sqlite> {
 }
 
 pub type WalletStorageImpl = Store<storage_sqlite::Sqlite>;
+pub type WalletStorageTxRwImpl<'st> = StoreTxRw<'st, storage_sqlite::Sqlite>;
