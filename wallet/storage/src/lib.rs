@@ -26,6 +26,7 @@ use std::path::PathBuf;
 
 use crate::internal::StoreTxRw;
 use utxo::Utxo;
+use wallet_types::wallet_tx::WalletTx;
 
 /// Possibly failing result of wallet storage query
 pub type Result<T> = storage::Result<T>;
@@ -36,7 +37,7 @@ pub trait WalletStorageRead {
     /// Get storage version
     fn get_storage_version(&self) -> Result<u32>;
     fn get_utxo(&self, outpoint: &OutPoint) -> Result<Option<Utxo>>;
-    fn get_transaction(&self, id: &Id<Transaction>) -> Result<Option<Transaction>>;
+    fn get_transaction(&self, id: &Id<Transaction>) -> Result<Option<WalletTx>>;
 }
 
 /// Modifying operations on persistent wallet data
@@ -45,7 +46,7 @@ pub trait WalletStorageWrite: WalletStorageRead {
     fn set_storage_version(&mut self, version: u32) -> Result<()>;
     fn set_utxo(&mut self, outpoint: &OutPoint, entry: Utxo) -> Result<()>;
     fn del_utxo(&mut self, outpoint: &OutPoint) -> Result<()>;
-    fn set_transaction(&mut self, id: &Id<Transaction>, tx: &Transaction) -> Result<()>;
+    fn set_transaction(&mut self, id: &Id<Transaction>, tx: &WalletTx) -> Result<()>;
 }
 
 /// Marker trait for types where read/write operations are run in a transaction

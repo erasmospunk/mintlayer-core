@@ -16,26 +16,27 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::wallet_tx::{Pool, TxPools};
 use common::chain::{OutPoint, Transaction, TxOutput};
 use common::primitives::{Id, Idable};
 use utxo::Utxo;
 use wallet_storage::{
     TransactionRw, Transactional, WalletStorageImpl, WalletStorageTxRwImpl, WalletStorageWrite,
 };
+use wallet_types::wallet_tx::{TxState, WalletTx};
 
 /// Wallet errors
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
 pub enum WalletError {
     #[error("Wallet database error: {0}")]
     DatabaseError(wallet_storage::Error),
+    #[error("Transaction already present: {0}")]
+    DuplicateTransaction(Id<Transaction>),
 }
 #[allow(dead_code)] // TODO remove
 pub struct Wallet {
     db: WalletStorageImpl,
-    txs: BTreeMap<Id<Transaction>, Transaction>,
+    txs: BTreeMap<Id<Transaction>, WalletTx>,
     utxo: BTreeMap<OutPoint, Utxo>,
-    tx_pools: TxPools,
 }
 
 impl Wallet {
@@ -54,18 +55,8 @@ impl Wallet {
     fn load_wallet(db: WalletStorageImpl) -> Result<Self, WalletError> {
         let txs = db.read_transactions().map_err(WalletError::DatabaseError)?;
         let utxo = db.read_utxo_set().map_err(WalletError::DatabaseError)?;
-        let tx_pools = TxPools {
-            unspent: Default::default(),
-            spent: Default::default(),
-            pending: Default::default(),
-            dead: Default::default(),
-        };
-        Ok(Wallet {
-            db,
-            txs,
-            utxo,
-            tx_pools,
-        })
+
+        Ok(Wallet { db, txs, utxo })
     }
 
     pub fn get_database(&self) -> &WalletStorageImpl {
@@ -73,33 +64,22 @@ impl Wallet {
     }
 
     #[allow(dead_code)] // TODO remove
-    fn add_wallet_transaction(&mut self, tx: Transaction, pool: Pool) -> Result<(), WalletError> {
+    fn add_transaction(&mut self, tx: Transaction, state: TxState) -> Result<(), WalletError> {
         let tx_id = tx.get_id();
+
+        if self.txs.contains_key(&tx_id) {
+            return Err(WalletError::DuplicateTransaction(tx_id));
+        }
 
         let mut db_tx = self.db.transaction_rw(None).map_err(WalletError::DatabaseError)?;
 
-        // TODO implement transaction pools
-        match pool {
-            Pool::Unspent => {
-                debug_assert!(self.tx_pools.unspent.insert(tx_id));
-                // self.add_to_utxos(&tx, &mut db_tx)?;
-            }
-            Pool::Spent => {
-                debug_assert!(self.tx_pools.spent.insert(tx_id));
-            }
-            Pool::Unconfirmed => {
-                debug_assert!(self.tx_pools.pending.insert(tx_id));
-                // self.add_to_utxos(&tx, &mut db_tx)?;
-            }
-            Pool::Conflicted => {
-                debug_assert!(self.tx_pools.dead.insert(tx_id));
-            }
-        }
+        let mut wallet_tx = WalletTx::new(tx, state);
+        wallet_tx.set_order(self.txs.len() as i64);
 
-        db_tx.set_transaction(&tx_id, &tx).map_err(WalletError::DatabaseError)?;
+        db_tx.set_transaction(&tx_id, &wallet_tx).map_err(WalletError::DatabaseError)?;
         db_tx.commit().map_err(WalletError::DatabaseError)?;
 
-        self.txs.insert(tx_id, tx);
+        self.txs.insert(tx_id, wallet_tx);
 
         Ok(())
     }
@@ -139,8 +119,9 @@ impl Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::chain::Transaction;
-    use std::path::PathBuf;
+    use common::chain::{GenBlock, Transaction};
+    use common::primitives::H256;
+    use std::time::SystemTime;
 
     #[test]
     fn in_memory_wallet() {
@@ -150,11 +131,10 @@ mod tests {
 
     #[test]
     fn wallet_transactions() {
-        // TODO fix this
-        // pub const TARGET_TMPDIR: &str = env!("CARGO_TARGET_TMPDIR");
-        pub const TARGET_TMPDIR: &str = ".";
-        let mut wallet_path = PathBuf::from(TARGET_TMPDIR);
-        wallet_path.push("wallet_transactions.sqlite");
+        let mut wallet_path = std::env::temp_dir();
+        let current_time =
+            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
+        wallet_path.push(format!("wallet_transactions_{current_time}.sqlite"));
         let mut wallet =
             Wallet::open_wallet_file(wallet_path.as_path()).expect("the wallet to load");
 
@@ -162,19 +142,24 @@ mod tests {
         let tx2 = Transaction::new(2, vec![], vec![], 0).unwrap();
         let tx3 = Transaction::new(3, vec![], vec![], 0).unwrap();
         let tx4 = Transaction::new(4, vec![], vec![], 0).unwrap();
+        let tx5 = Transaction::new(5, vec![], vec![], 0).unwrap();
 
-        wallet.add_wallet_transaction(tx1.clone(), Pool::Unspent).unwrap();
-        wallet.add_wallet_transaction(tx2.clone(), Pool::Unconfirmed).unwrap();
-        wallet.add_wallet_transaction(tx3.clone(), Pool::Spent).unwrap();
-        wallet.add_wallet_transaction(tx4.clone(), Pool::Conflicted).unwrap();
+        let block_id: Id<GenBlock> = H256::from_low_u64_le(123).into();
+
+        wallet.add_transaction(tx1.clone(), TxState::Confirmed(block_id)).unwrap();
+        wallet.add_transaction(tx2.clone(), TxState::Conflicted(block_id)).unwrap();
+        wallet.add_transaction(tx3.clone(), TxState::InMempool).unwrap();
+        wallet.add_transaction(tx4.clone(), TxState::Inactive).unwrap();
+        wallet.add_transaction(tx5.clone(), TxState::Unrecognized).unwrap();
         drop(wallet);
 
         let wallet = Wallet::open_wallet_file(wallet_path.as_path()).expect("the wallet to load");
 
-        assert_eq!(4, wallet.txs.len());
-        assert_eq!(&tx1, wallet.txs.get(&tx1.get_id()).unwrap());
-        assert_eq!(&tx2, wallet.txs.get(&tx2.get_id()).unwrap());
-        assert_eq!(&tx3, wallet.txs.get(&tx3.get_id()).unwrap());
-        assert_eq!(&tx4, wallet.txs.get(&tx4.get_id()).unwrap());
+        assert_eq!(5, wallet.txs.len());
+        assert_eq!(&tx1, wallet.txs.get(&tx1.get_id()).unwrap().get_tx());
+        assert_eq!(&tx2, wallet.txs.get(&tx2.get_id()).unwrap().get_tx());
+        assert_eq!(&tx3, wallet.txs.get(&tx3.get_id()).unwrap().get_tx());
+        assert_eq!(&tx4, wallet.txs.get(&tx4.get_id()).unwrap().get_tx());
+        assert_eq!(&tx5, wallet.txs.get(&tx5.get_id()).unwrap().get_tx());
     }
 }

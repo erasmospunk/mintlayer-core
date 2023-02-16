@@ -28,6 +28,7 @@ use crate::{
 
 mod store_tx;
 pub use store_tx::{StoreTxRo, StoreTxRw};
+use wallet_types::wallet_tx::WalletTx;
 
 /// Store for wallet data, parametrized over the backend B
 pub struct Store<B: storage::Backend>(storage::Storage<B, Schema>);
@@ -54,7 +55,7 @@ impl<B: storage::Backend> Store<B> {
 
     /// Collect and return all transactions from the storage
     #[allow(clippy::let_and_return)]
-    pub fn read_transactions(&self) -> crate::Result<BTreeMap<Id<Transaction>, Transaction>> {
+    pub fn read_transactions(&self) -> crate::Result<BTreeMap<Id<Transaction>, WalletTx>> {
         let db_tx = self.transaction_ro()?;
         db_tx.0.get::<db::DBTxs, _>().prefix_iter_decoded(&()).map(Iterator::collect)
     }
@@ -113,7 +114,7 @@ impl<B: storage::Backend> WalletStorageRead for Store<B> {
     delegate_to_transaction! {
         fn get_storage_version(&self) -> crate::Result<u32>;
         fn get_utxo(&self, outpoint: &OutPoint) -> crate::Result<Option<Utxo>>;
-        fn get_transaction(&self, id: &Id<Transaction>) -> crate::Result<Option<Transaction>>;
+        fn get_transaction(&self, id: &Id<Transaction>) -> crate::Result<Option<WalletTx>>;
     }
 }
 
@@ -122,7 +123,7 @@ impl<B: storage::Backend> WalletStorageWrite for Store<B> {
         fn set_storage_version(&mut self, version: u32) -> crate::Result<()>;
         fn set_utxo(&mut self, outpoint: &OutPoint, entry: Utxo) -> crate::Result<()>;
         fn del_utxo(&mut self, outpoint: &OutPoint) -> crate::Result<()>;
-        fn set_transaction(&mut self, id: &Id<Transaction>, tx: &Transaction) -> crate::Result<()>;
+        fn set_transaction(&mut self, id: &Id<Transaction>, tx: &WalletTx) -> crate::Result<()>;
     }
 }
 
