@@ -16,6 +16,7 @@
 use super::child_number::ChildNumber;
 use super::derivable::DerivationError;
 use core::fmt;
+use serialization::{Decode, Encode};
 use std::fmt::Formatter;
 use std::str::FromStr;
 
@@ -23,10 +24,14 @@ const PREFIX: &str = "m";
 const SEPARATOR: &str = "/";
 
 /// BIP-32 compatible derivation path
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Encode, Decode)]
 pub struct DerivationPath(Vec<ChildNumber>);
 
 impl DerivationPath {
+    pub fn empty() -> Self {
+        DerivationPath(vec![])
+    }
+
     pub fn push(&mut self, num: ChildNumber) {
         self.0.push(num);
     }

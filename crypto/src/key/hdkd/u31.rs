@@ -13,17 +13,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serialization::{Decode, Encode};
 use std::{fmt::Display, str::FromStr};
 
 use super::derivable::DerivationError;
 
 const MSB_BIT: u32 = 0x80000000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Encode, Decode)]
 pub struct U31(u32);
 
 impl U31 {
-    pub fn from_u32_with_msb(val: u32) -> (Self, bool) {
+    pub const fn from_u32_ignore_msb(val: u32) -> Self {
+        Self::from_u32_with_msb(val).0
+    }
+
+    pub const fn from_u32_with_msb(val: u32) -> (Self, bool) {
         let msb = val & MSB_BIT == 0;
         let val = val & !MSB_BIT;
         let result = Self(val);

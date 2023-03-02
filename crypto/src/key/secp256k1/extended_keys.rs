@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use crate::key::hdkd::chain_code::CHAINCODE_LENGTH;
+use crate::key::hdkd::derivation_path::DerivationPath;
 use crate::key::hdkd::{
     chain_code::ChainCode,
     child_number::ChildNumber,
@@ -34,6 +35,8 @@ type HmacSha512 = Hmac<Sha512>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 pub struct Secp256k1ExtendedPrivateKey {
+    /// The derivation path of leading to this key
+    pub derivation_path: DerivationPath,
     /// Chain code
     pub chain_code: ChainCode,
     /// Private key
@@ -80,6 +83,7 @@ impl Secp256k1ExtendedPrivateKey {
         let (private_key, chain_code) = to_key_and_chain_code(mac)?;
 
         Ok(Secp256k1ExtendedPrivateKey {
+            derivation_path: DerivationPath::empty(),
             private_key: private_key.into(),
             chain_code,
         })
@@ -95,6 +99,7 @@ impl Secp256k1ExtendedPrivateKey {
         let private_key = secp256k1::SecretKey::new(rng).into();
         // Generate a new private key
         let ext_priv = Secp256k1ExtendedPrivateKey {
+            derivation_path: DerivationPath::empty(),
             private_key,
             chain_code,
         };
@@ -135,7 +140,11 @@ impl Derivable for Secp256k1ExtendedPrivateKey {
             .map_err(|_| DerivationError::KeyDerivationError)?
             .into();
 
+        let mut derivation_path = self.derivation_path.clone();
+        derivation_path.push(num);
+
         Ok(Secp256k1ExtendedPrivateKey {
+            derivation_path,
             private_key,
             chain_code,
         })
@@ -144,6 +153,8 @@ impl Derivable for Secp256k1ExtendedPrivateKey {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode)]
 pub struct Secp256k1ExtendedPublicKey {
+    /// The derivation path of leading to this key
+    pub derivation_path: DerivationPath,
     /// Chain code
     pub chain_code: ChainCode,
     /// Public key
@@ -157,6 +168,7 @@ impl Secp256k1ExtendedPublicKey {
 
     pub fn from_private_key(private_key: &Secp256k1ExtendedPrivateKey) -> Self {
         Secp256k1ExtendedPublicKey {
+            derivation_path: private_key.derivation_path.clone(),
             public_key: private_key.private_key.data.x_only_public_key(SECP256K1).0.into(),
             chain_code: private_key.chain_code,
         }

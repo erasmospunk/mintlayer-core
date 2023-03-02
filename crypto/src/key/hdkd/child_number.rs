@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serialization::{Decode, Encode};
 use std::{
     fmt::{self, Formatter, Write},
     str::FromStr,
@@ -24,15 +25,17 @@ const HARDENED_APOS: char = '\'';
 const HARDENED_H: char = 'h';
 
 /// BIP32-like child numbers. Currently we only support hardened derivations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Encode, Decode)]
 pub struct ChildNumber(DerivationType);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Encode, Decode)]
 enum DerivationType {
     Hardened(U31),
 }
 
 impl ChildNumber {
+    pub const ZERO_H: Self = ChildNumber(DerivationType::Hardened(U31::from_u32_ignore_msb(0)));
+
     /// Return a hardened child number
     pub fn from_hardened(index: U31) -> Self {
         ChildNumber(DerivationType::Hardened(index))

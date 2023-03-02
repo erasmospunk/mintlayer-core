@@ -17,6 +17,7 @@ use serialization::{Decode, Encode};
 
 use crate::key::hdkd::child_number::ChildNumber;
 use crate::key::hdkd::derivable::{Derivable, DerivationError};
+use crate::key::hdkd::derivation_path::DerivationPath;
 use crate::key::key_holder::{ExtendedPrivateKeyHolder, ExtendedPublicKeyHolder};
 use crate::key::secp256k1::extended_keys::{
     Secp256k1ExtendedPrivateKey, Secp256k1ExtendedPublicKey,
@@ -94,6 +95,16 @@ impl ExtendedPrivateKey {
             ExtendedPrivateKeyHolder::Secp256k1Schnorr(k) => k.private_key.into(),
         }
     }
+
+    pub fn to_public_key(&self) -> ExtendedPublicKey {
+        ExtendedPublicKey::from_private_key(self)
+    }
+
+    pub fn get_derivation_path(&self) -> &DerivationPath {
+        match self.key {
+            ExtendedPrivateKeyHolder::Secp256k1Schnorr(ref key) => &key.derivation_path,
+        }
+    }
 }
 
 impl ExtendedPublicKey {
@@ -121,6 +132,12 @@ impl ExtendedPublicKey {
     pub fn public_key(self) -> PublicKey {
         match self.pub_key {
             ExtendedPublicKeyHolder::Secp256k1Schnorr(k) => k.public_key.into(),
+        }
+    }
+
+    pub fn get_derivation_path(&self) -> &DerivationPath {
+        match self.pub_key {
+            ExtendedPublicKeyHolder::Secp256k1Schnorr(ref key) => &key.derivation_path,
         }
     }
 }

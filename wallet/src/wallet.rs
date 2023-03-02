@@ -18,8 +18,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::key_chain::{KeyChain, KeyChainError, KeyPurpose};
-use common::chain::{OutPoint, Transaction, TxOutput};
+use crate::key_chain::{KeyChainError, KeyPurpose, MasterKeyChain};
+use common::chain::config::create_regtest;
+use common::chain::{ChainConfig, OutPoint, Transaction, TxOutput};
 use common::primitives::{Id, Idable};
 use utxo::Utxo;
 use wallet_storage::{
@@ -45,31 +46,38 @@ type WalletResult<T> = Result<T, WalletError>;
 
 #[allow(dead_code)] // TODO remove
 pub struct Wallet<B: storage::Backend> {
+    chain_config: Arc<ChainConfig>,
     db: Arc<Store<B>>,
-    key_chain: KeyChain<B>,
+    key_chain: MasterKeyChain<B>,
     txs: BTreeMap<Id<Transaction>, WalletTx>,
     utxo: BTreeMap<OutPoint, Utxo>,
 }
 
-pub fn open_wallet_file<P: AsRef<Path>>(path: P) -> WalletResult<Wallet<DefaultBackend>> {
-    let db = Store::new(DefaultBackend::new(path))?;
+pub fn open_wallet_file<P: AsRef<Path>>(
+    chain_config: Arc<ChainConfig>,
+    path: P,
+) -> WalletResult<Wallet<DefaultBackend>> {
+    let db = Arc::new(Store::new(DefaultBackend::new(path))?);
 
-    Wallet::load_wallet(db)
+    Wallet::load_wallet(chain_config, db)
 }
 
-pub fn open_wallet_in_memory() -> WalletResult<Wallet<DefaultBackend>> {
-    let db = Store::new(DefaultBackend::new_in_memory())?;
+pub fn open_wallet_in_memory(
+    chain_config: Arc<ChainConfig>,
+) -> WalletResult<Wallet<DefaultBackend>> {
+    let db = Arc::new(Store::new(DefaultBackend::new_in_memory())?);
 
-    Wallet::load_wallet(db)
+    Wallet::load_wallet(chain_config, db)
 }
 
 impl<B: storage::Backend> Wallet<B> {
-    fn load_wallet(db: Store<B>) -> WalletResult<Self> {
-        let db = Arc::new(db);
+    fn load_wallet(chain_config: Arc<ChainConfig>, db: Arc<Store<B>>) -> WalletResult<Self> {
         let txs = db.read_transactions()?;
         let utxo = db.read_utxo_set()?;
-        let key_chain = KeyChain::load_key_chain(db.clone())?;
+
+        let key_chain = MasterKeyChain::load_from_database(chain_config.clone(), db.clone())?;
         Ok(Wallet {
+            chain_config,
             db,
             key_chain,
             txs,
@@ -83,7 +91,7 @@ impl<B: storage::Backend> Wallet<B> {
 
     /// Get a new address that hasn't been used before
     pub fn get_new_address(&mut self, purpose: KeyPurpose) -> WalletResult<Address> {
-        Ok(self.key_chain.get_new_address(purpose)?)
+        Ok(self.key_chain.get_default_account_key_chain()?.get_new_address(purpose)?)
     }
 
     #[allow(dead_code)] // TODO remove
@@ -161,16 +169,19 @@ mod tests {
 
     #[test]
     fn in_memory_wallet() {
-        let wallet = open_wallet_in_memory();
+        let config = Arc::new(create_regtest());
+        let wallet = open_wallet_in_memory(config);
         assert!(wallet.is_ok())
     }
 
     #[test]
     fn wallet_transactions() {
+        let config = Arc::new(create_regtest());
         let temp_dir_path = tempfile::TempDir::new().unwrap();
         let wallet_path = temp_dir_path.path().join("test_wallet_transactions.sqlite");
 
-        let mut wallet = open_wallet_file(wallet_path.as_path()).expect("the wallet to load");
+        let mut wallet =
+            open_wallet_file(config.clone(), wallet_path.as_path()).expect("the wallet to load");
 
         let tx1 = Transaction::new(1, vec![], vec![], 0).unwrap();
         let tx2 = Transaction::new(2, vec![], vec![], 0).unwrap();
@@ -185,7 +196,8 @@ mod tests {
         wallet.add_transaction(tx4.clone(), TxState::Inactive).unwrap();
         drop(wallet);
 
-        let mut wallet = open_wallet_file(wallet_path.as_path()).expect("the wallet to load");
+        let mut wallet =
+            open_wallet_file(config.clone(), wallet_path.as_path()).expect("the wallet to load");
 
         assert_eq!(4, wallet.txs.len());
         assert_eq!(&tx1, wallet.txs.get(&tx1.get_id()).unwrap().get_tx());
@@ -197,7 +209,8 @@ mod tests {
         wallet.delete_transaction(tx3.get_id()).unwrap();
         drop(wallet);
 
-        let wallet = open_wallet_file(wallet_path.as_path()).expect("the wallet to load");
+        let wallet =
+            open_wallet_file(config.clone(), wallet_path.as_path()).expect("the wallet to load");
 
         assert_eq!(2, wallet.txs.len());
         assert_eq!(&tx2, wallet.txs.get(&tx2.get_id()).unwrap().get_tx());
