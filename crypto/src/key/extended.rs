@@ -208,11 +208,11 @@ mod test {
         let master_pub_key = ExtendedPublicKey::from_private_key(&master_key);
         assert_eq!(
             master_key.encode().encode_hex::<String>(),
-            "007923408dadd3c7b56eed15567707ae5e5dca089de972e07f3b860450e2a3b70e1837c1be8e2995ec11cda2b066151be2cfb48adf9e47b151d46adab3a21cdf67"
+            "00007923408dadd3c7b56eed15567707ae5e5dca089de972e07f3b860450e2a3b70e1837c1be8e2995ec11cda2b066151be2cfb48adf9e47b151d46adab3a21cdf67"
         );
         assert_eq!(
             master_pub_key.encode().encode_hex::<String>(),
-            "007923408dadd3c7b56eed15567707ae5e5dca089de972e07f3b860450e2a3b70ed902f35f560e0470c63313c7369168d9d7df2d49bf295fd9fb7cb109ccee0494"
+            "00007923408dadd3c7b56eed15567707ae5e5dca089de972e07f3b860450e2a3b70ed902f35f560e0470c63313c7369168d9d7df2d49bf295fd9fb7cb109ccee0494"
         );
     }
 }

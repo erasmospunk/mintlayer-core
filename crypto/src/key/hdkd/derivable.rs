@@ -25,12 +25,12 @@ pub enum DerivationError {
     InvalidChildNumberFormat,
     #[error("Malformed derivation path format")]
     InvalidDerivationPathFormat,
-    #[error("Unsupported derivation type")]
-    UnsupportedDerivationType,
     #[error("Unsupported derivation for key type")]
     UnsupportedKeyType,
     #[error("Key derivation error")]
     KeyDerivationError,
+    #[error("Derivation path too long")]
+    PathTooLong,
 }
 
 pub trait Derivable: Sized {

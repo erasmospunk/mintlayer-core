@@ -17,9 +17,11 @@
 //! The KeyChain struct holds and constantly derives keys for the wallet addresses
 //! It uses the following derivation scheme:
 //!
-//! m/0'/<account_number>'/<key_purpose>'/<key_index>'
+//! m/44'/19788'/<account_number>'/<key_purpose>'/<key_index>'
 //!
-//! Where `account_number` is the index of an account,
+//! Where 44' is the standard BIP44 prefix
+//!       19788' or 0x4D4C' is Mintlayer's BIP44 registered coin type
+//!       `account_number` is the index of an account,
 //!       `key_purpose` is if the generated address is for receiving or change purposes and this
 //!                     value is 0 or 1 respectively,
 //!       `key_index` starts from 0 and it is incremented for each new address
@@ -31,8 +33,10 @@ use crypto::key::extended::{ExtendedKeyKind, ExtendedPrivateKey, ExtendedPublicK
 use crypto::key::hdkd::child_number::ChildNumber;
 use crypto::key::hdkd::derivable::{Derivable, DerivationError};
 use crypto::key::hdkd::derivation_path::DerivationPath;
+use crypto::key::hdkd::u31::U31;
 use serialization::{Decode, Encode};
 use std::collections::BTreeMap;
+use std::convert::TryInto;
 use std::slice::Iter;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -41,7 +45,10 @@ use wallet_storage::{Store, WalletStorageRead};
 use zeroize::Zeroize;
 
 /// Path leading to accounts paths
-const ACCOUNTS_PATH: [ChildNumber; 1] = [ChildNumber::ZERO_H];
+const ACCOUNTS_PATH: [ChildNumber; 2] = [
+    ChildNumber::from_hardened(U31::from_u32_ignore_msb(44)),
+    ChildNumber::from_hardened(U31::from_u32_ignore_msb(0x4D4C)),
+];
 /// Default account index
 const DEFAULT_ACCOUNT_INDEX: ChildNumber = ChildNumber::ZERO_H;
 /// Size of individual account key tree: account_number, key_purpose, key_index
@@ -340,9 +347,8 @@ impl<B: Backend> AccountKeyChain<B> {
 fn account_path(account_index: ChildNumber) -> DerivationPath {
     let mut path = Vec::with_capacity(ACCOUNTS_PATH.len() + 1);
     path.extend(ACCOUNTS_PATH);
-    // path[..ACCOUNTS_PATH.len()].copy_from_slice(&ACCOUNTS_PATH);
     path.push(account_index);
-    path.into()
+    path.try_into().expect("Path creation should not fail")
 }
 
 #[cfg(test)]
@@ -380,6 +386,11 @@ mod tests {
                 "04e13b373ed3d5753657d375feec032187cdada01e5df83cc8fddd29c1f15755",
             ),
         ];
+
+        // 004fddb29b630431422b3a534e0028e053eb212ab10a5f1db3ba5cbc4e81ff329404feff4263658459430aea33cb851b830a0235db1611d3279624f40c7c2c0135
+        // 000a8000002c80004d4c800000008000002c80004d4c80000000800000008000000080000000800000004b4e0dbdf974759800a2fa78adc2aa8355e149ed430f5dc4f6ae0880e53b7434abbd02eeeaa7c3afe6b1774fa3e6cc1dc4494e9b4ba5fe6e92268d6a1b3b009f
+        // 000a8000002c80004d4c800000008000002c80004d4c80000000800000008000000080000000800000004b4e0dbdf974759800a2fa78adc2aa8355e149ed430f5dc4f6ae0880e53b7434abbd02eeeaa7c3afe6b1774fa3e6cc1dc4494e9b4ba5fe6e92268d6a1b3b009f
+        // 00088000000080000000800000008000000080000000800000008000000080000000d7e91f5e96b60315176b274b9124a081903aa51e923df2cc9a57aabc3efef5d46ca086193debd51ccbb18dc73347985826a040066e0b507d356e827aeb89ab6b
 
         for (purpose, _hd_path, secret, public, chaincode) in test_vec {
             let pk = key_chain.get_new_key(purpose).unwrap();

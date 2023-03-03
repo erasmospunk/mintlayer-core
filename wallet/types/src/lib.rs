@@ -13,8 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod wallet_address;
 pub mod wallet_tx;
 
-pub use wallet_address::WalletAddress;
 pub use wallet_tx::{TxState, WalletTx};
