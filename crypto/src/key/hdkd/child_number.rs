@@ -71,6 +71,24 @@ impl ChildNumber {
     pub fn into_encoded_be_bytes(self) -> [u8; 4] {
         self.into_encoded_index().to_be_bytes()
     }
+
+    pub fn is_hardened(&self) -> bool {
+        match self.0 {
+            DerivationType::Normal(_) => false,
+            DerivationType::Hardened(_) => true,
+        }
+    }
+
+    pub fn is_normal(&self) -> bool {
+        !self.is_hardened()
+    }
+
+    pub fn plus_one(&self) -> Result<Self, DerivationError> {
+        match self.0 {
+            DerivationType::Normal(i) => Ok(ChildNumber(DerivationType::Normal(i.plus_one()?))),
+            DerivationType::Hardened(i) => Ok(ChildNumber(DerivationType::Hardened(i.plus_one()?))),
+        }
+    }
 }
 
 impl Encode for ChildNumber {

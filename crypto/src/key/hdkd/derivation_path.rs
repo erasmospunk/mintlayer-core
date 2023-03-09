@@ -37,6 +37,10 @@ impl DerivationPath {
     pub fn into_vec(self) -> Vec<ChildNumber> {
         self.0
     }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl Encode for DerivationPath {

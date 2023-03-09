@@ -99,12 +99,6 @@ impl ExtendedPrivateKey {
     pub fn to_public_key(&self) -> ExtendedPublicKey {
         ExtendedPublicKey::from_private_key(self)
     }
-
-    pub fn get_derivation_path(&self) -> &DerivationPath {
-        match self.key {
-            ExtendedPrivateKeyHolder::Secp256k1Schnorr(ref key) => &key.derivation_path,
-        }
-    }
 }
 
 impl ExtendedPublicKey {
@@ -129,15 +123,15 @@ impl ExtendedPublicKey {
         }
     }
 
-    pub fn public_key(self) -> PublicKey {
+    pub fn into_public_key(self) -> PublicKey {
         match self.pub_key {
             ExtendedPublicKeyHolder::Secp256k1Schnorr(k) => k.public_key.into(),
         }
     }
 
-    pub fn get_derivation_path(&self) -> &DerivationPath {
+    pub fn get_derivation_path(&self) -> DerivationPath {
         match self.pub_key {
-            ExtendedPublicKeyHolder::Secp256k1Schnorr(ref key) => &key.derivation_path,
+            ExtendedPublicKeyHolder::Secp256k1Schnorr(ref key) => key.derivation_path.clone(),
         }
     }
 }
@@ -151,6 +145,12 @@ impl Derivable for ExtendedPrivateKey {
                     key: ExtendedPrivateKeyHolder::Secp256k1Schnorr(secp_key),
                 })
             }
+        }
+    }
+
+    fn get_derivation_path(&self) -> DerivationPath {
+        match self.key {
+            ExtendedPrivateKeyHolder::Secp256k1Schnorr(ref key) => key.get_derivation_path(),
         }
     }
 }
@@ -177,7 +177,7 @@ mod test {
         let msg_size = 1 + rand::random::<usize>() % 10000;
         let msg: Vec<u8> = (0..msg_size).map(|_| rand::random::<u8>()).collect();
         let sig = sk.private_key().sign_message(&msg).unwrap();
-        assert!(pk.public_key().verify_message(&sig, &msg));
+        assert!(pk.into_public_key().verify_message(&sig, &msg));
     }
 
     #[rstest]
@@ -188,12 +188,16 @@ mod test {
         let (sk, _) = ExtendedPrivateKey::new_from_rng(&mut rng, ExtendedKeyKind::Secp256k1Schnorr);
         let sk1 = sk
             .clone()
-            .derive_child(ChildNumber::from_hardened(123.try_into().unwrap()))
+            .derive_child(ChildNumber::from_hardened(1.try_into().unwrap()))
             .unwrap();
-        let sk2 = sk1.derive_child(ChildNumber::from_hardened(456.try_into().unwrap())).unwrap();
-        let sk3 = sk2.derive_child(ChildNumber::from_hardened(789.try_into().unwrap())).unwrap();
-        let sk4 = sk.derive_path(&DerivationPath::from_str("m/123h/456h/789h").unwrap()).unwrap();
-        assert_eq!(sk3, sk4);
+        let sk2 = sk1.derive_child(ChildNumber::from_hardened(2.try_into().unwrap())).unwrap();
+        let sk3 = sk2.derive_child(ChildNumber::from_hardened(3.try_into().unwrap())).unwrap();
+        let sk3_alt = sk.derive_path(&DerivationPath::from_str("m/1h/2h/3h").unwrap()).unwrap();
+        assert_eq!(sk3, sk3_alt);
+        let sk4 = sk3.derive_child(ChildNumber::from_normal(4.try_into().unwrap())).unwrap();
+        let sk4_alt =
+            sk3_alt.derive_path(&DerivationPath::from_str("m/1h/2h/3h/4").unwrap()).unwrap();
+        assert_eq!(sk4, sk4_alt);
     }
 
     #[test]
@@ -212,7 +216,7 @@ mod test {
         );
         assert_eq!(
             master_pub_key.encode().encode_hex::<String>(),
-            "00007923408dadd3c7b56eed15567707ae5e5dca089de972e07f3b860450e2a3b70ed902f35f560e0470c63313c7369168d9d7df2d49bf295fd9fb7cb109ccee0494"
+            "00007923408dadd3c7b56eed15567707ae5e5dca089de972e07f3b860450e2a3b70e03d902f35f560e0470c63313c7369168d9d7df2d49bf295fd9fb7cb109ccee0494"
         );
     }
 }

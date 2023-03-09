@@ -41,6 +41,10 @@ impl U31 {
             self.0
         }
     }
+
+    pub(crate) fn plus_one(&self) -> Result<Self, DerivationError> {
+        (self.0 + 1).try_into()
+    }
 }
 
 impl From<U31> for u32 {

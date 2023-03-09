@@ -44,9 +44,11 @@ const DEFAULT_EPOCH_LENGTH: NonZeroU64 =
         None => panic!("epoch length cannot be 0"),
     };
 const DEFAULT_SEALED_EPOCH_DISTANCE_FROM_TIP: usize = 2;
-const MINTLAYER_COIN_TYPE: ChildNumber =
+
+pub const BIP44_PATH: ChildNumber = ChildNumber::from_hardened(U31::from_u32_ignore_msb(44));
+pub const MINTLAYER_COIN_TYPE: ChildNumber =
     ChildNumber::from_hardened(U31::from_u32_ignore_msb(0x4D4C));
-const MINTLAYER_COIN_TYPE_TEST: ChildNumber =
+pub const MINTLAYER_COIN_TYPE_TEST: ChildNumber =
     ChildNumber::from_hardened(U31::from_u32_ignore_msb(0x01));
 
 pub type EpochIndex = u64;
@@ -99,6 +101,7 @@ impl ChainType {
 pub struct ChainConfig {
     chain_type: ChainType,
     address_prefix: String,
+    bip44_index: ChildNumber,
     height_checkpoint_data: BTreeMap<BlockHeight, Id<Block>>,
     net_upgrades: NetUpgrades<UpgradeVersion>,
     magic_bytes: [u8; 4],
@@ -131,6 +134,10 @@ pub struct ChainConfig {
 impl ChainConfig {
     pub fn address_prefix(&self) -> &str {
         &self.address_prefix
+    }
+
+    pub fn bip44_index(&self) -> ChildNumber {
+        self.bip44_index
     }
 
     pub fn genesis_block_id(&self) -> Id<GenBlock> {

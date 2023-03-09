@@ -21,6 +21,7 @@ use crate::chain::{
 };
 use crate::primitives::{id::WithId, semver::SemVer, Amount, BlockDistance, BlockHeight, H256};
 
+use crypto::key::hdkd::child_number::ChildNumber;
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use std::sync::Arc;
@@ -87,6 +88,7 @@ impl GenesisBlockInit {
 pub struct Builder {
     chain_type: ChainType,
     address_prefix: String,
+    bip44_index: ChildNumber,
     magic_bytes: [u8; 4],
     p2p_port: u16,
     max_future_block_time_offset: Duration,
@@ -119,6 +121,7 @@ impl Builder {
         Self {
             chain_type,
             address_prefix: chain_type.default_address_prefix().to_string(),
+            bip44_index: chain_type.default_bip44_index(),
             coin_decimals: Mlt::DECIMALS,
             magic_bytes: chain_type.default_magic_bytes(),
             p2p_port: chain_type.default_p2p_port(),
@@ -159,6 +162,7 @@ impl Builder {
         let Self {
             chain_type,
             address_prefix,
+            bip44_index,
             coin_decimals,
             magic_bytes,
             p2p_port,
@@ -205,6 +209,7 @@ impl Builder {
         ChainConfig {
             chain_type,
             address_prefix,
+            bip44_index,
             coin_decimals,
             magic_bytes,
             p2p_port,
@@ -248,6 +253,7 @@ macro_rules! builder_method {
 impl Builder {
     builder_method!(chain_type: ChainType);
     builder_method!(address_prefix: String);
+    builder_method!(bip44_index: ChildNumber);
     builder_method!(magic_bytes: [u8; 4]);
     builder_method!(p2p_port: u16);
     builder_method!(max_future_block_time_offset: Duration);

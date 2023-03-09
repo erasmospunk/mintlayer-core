@@ -20,41 +20,35 @@
 //! m/44'/19788'/<account_number>'/<key_purpose>'/<key_index>'
 //!
 //! Where 44' is the standard BIP44 prefix
-//!       19788' or 0x4D4C' is Mintlayer's BIP44 registered coin type
+//!       19788' or 0x4D4C' (1' for the testnets) is Mintlayer's BIP44 registered coin type
 //!       `account_number` is the index of an account,
 //!       `key_purpose` is if the generated address is for receiving or change purposes and this
 //!                     value is 0 or 1 respectively,
 //!       `key_index` starts from 0 and it is incremented for each new address
 
 use common::address::{Address, AddressError};
-use common::chain::config::create_regtest;
+use common::chain::config::{create_regtest, BIP44_PATH};
 use common::chain::{ChainConfig, Destination};
 use crypto::key::extended::{ExtendedKeyKind, ExtendedPrivateKey, ExtendedPublicKey};
 use crypto::key::hdkd::child_number::ChildNumber;
 use crypto::key::hdkd::derivable::{Derivable, DerivationError};
 use crypto::key::hdkd::derivation_path::DerivationPath;
 use crypto::key::hdkd::u31::U31;
+use crypto::key::PublicKey;
 use serialization::{Decode, Encode};
 use std::collections::BTreeMap;
 use std::convert::TryInto;
-use std::slice::Iter;
-use std::str::FromStr;
 use std::sync::Arc;
 use storage::Backend;
 use wallet_storage::{Store, WalletStorageRead};
 use zeroize::Zeroize;
 
-/// Path leading to accounts paths
-const ACCOUNTS_PATH: [ChildNumber; 2] = [
-    ChildNumber::from_hardened(U31::from_u32_ignore_msb(44)),
-    ChildNumber::from_hardened(U31::from_u32_ignore_msb(0x4D4C)),
-];
-/// Default account index
-const DEFAULT_ACCOUNT_INDEX: ChildNumber = ChildNumber::ZERO_H;
+/// Size of the tree leading to accounts paths: m/44'/<coin_type>'
+const COIN_TYPE_TREE_DEPTH: usize = 2;
 /// Size of individual account key tree: account_number, key_purpose, key_index
 const ACCOUNT_KEY_TREE_DEPTH: usize = 3;
 /// The maximum derivation path length
-const MAX_KEY_TREE_DEPTH: usize = ACCOUNTS_PATH.len() + ACCOUNT_KEY_TREE_DEPTH;
+const BIP44_ACCOUNT_KEY_TREE_DEPTH: usize = COIN_TYPE_TREE_DEPTH + ACCOUNT_KEY_TREE_DEPTH;
 /// Default cryptography type
 const KEY_KIND: ExtendedKeyKind = ExtendedKeyKind::Secp256k1Schnorr;
 /// Default size of the number of unused addresses that need to be checked after the
@@ -74,6 +68,8 @@ pub enum KeyChainError {
     MissingPrivateKey,
     #[error("No account found: {0}")]
     NoAccountFound(DerivationPath),
+    #[error("Invalid BIP44 account path format: {0}")]
+    InvalidBip44AccountPath(DerivationPath),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode)]
@@ -81,7 +77,8 @@ pub enum AccountKeyId {
     Derived(AccountHDPath),
 }
 
-/// The KeyChainEntry is is used for
+/// The AccountHDPath is is used for identifying entries belonging to a specific account.
+/// The format of the path should follow the BIP32 specification
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode)]
 pub struct AccountHDPath([ChildNumber; ACCOUNT_KEY_TREE_DEPTH]);
 
@@ -99,8 +96,32 @@ impl TryFrom<ExtendedPublicKey> for AccountHDPath {
     type Error = KeyChainError;
 
     fn try_from(pk: ExtendedPublicKey) -> KeyChainResult<Self> {
-        // let path = pk.get_derivation_path();
-        todo!()
+        let path = pk.get_derivation_path();
+        if path.len() != BIP44_ACCOUNT_KEY_TREE_DEPTH {
+            return Err(KeyChainError::InvalidBip44AccountPath(path));
+        }
+
+        let path = path.into_vec();
+
+        let key_index = path[4];
+        let key_purpose = path[3];
+        let account_number = path[2];
+        let coin_type = path[1];
+        let bip44_index = path[0];
+
+        // Check that the path confirms to the spec
+        if bip44_index != BIP44_PATH
+            || coin_type.is_normal()
+            || account_number.is_normal()
+            || key_purpose.is_hardened()
+            || key_index.is_hardened()
+        {
+            return Err(KeyChainError::InvalidBip44AccountPath(
+                pk.get_derivation_path(),
+            ));
+        }
+
+        Ok(AccountHDPath::new(account_number, key_purpose, key_index))
     }
 }
 
@@ -118,6 +139,17 @@ pub enum KeyPurpose {
 
 impl KeyPurpose {
     const ALL: [KeyPurpose; 2] = [KeyPurpose::ReceiveFunds, KeyPurpose::Change];
+    /// The index for each purpose
+    const DETERMINISTIC_INDEX: [ChildNumber; 2] = [
+        ChildNumber::from_normal(U31::from_u32_ignore_msb(0)),
+        ChildNumber::from_normal(U31::from_u32_ignore_msb(1)),
+    ];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum KeyChainId {
+    Master(PublicKey),
+    Account(PublicKey),
 }
 
 pub struct MasterKeyChain<B: Backend> {
@@ -131,10 +163,6 @@ pub struct MasterKeyChain<B: Backend> {
     /// The master key of this key chain from where all the keys are derived from
     // TODO implement encryption
     root_key: ExtendedPrivateKey,
-
-    /// A list of accounts that are derived from the same master key
-    // TODO This will be removed as wallet account will hold a AccountKeyChain<B>
-    accounts: BTreeMap<ChildNumber, Arc<AccountKeyChain<B>>>,
 }
 
 impl<B: Backend> MasterKeyChain<B> {
@@ -150,20 +178,10 @@ impl<B: Backend> MasterKeyChain<B> {
         mnemonic.zeroize();
         seed.zeroize();
 
-        let default_account = Arc::new(AccountKeyChain::new_from_root_key(
-            chain_config.clone(),
-            db.clone(),
-            &root_key,
-            DEFAULT_ACCOUNT_INDEX,
-        )?);
-
-        let accounts = BTreeMap::from([(DEFAULT_ACCOUNT_INDEX, default_account)]);
-
         Ok(MasterKeyChain {
             chain_config,
             root_key,
             db,
-            accounts,
         })
     }
 
@@ -177,36 +195,24 @@ impl<B: Backend> MasterKeyChain<B> {
 
         let master_key = ExtendedPrivateKey::new_from_entropy(KEY_KIND).0;
 
-        // TODO load accounts
-        let default_account = Arc::new(AccountKeyChain::new_from_root_key(
-            chain_config.clone(),
-            db.clone(),
-            &master_key,
-            DEFAULT_ACCOUNT_INDEX,
-        )?);
-
-        let accounts = BTreeMap::from([(DEFAULT_ACCOUNT_INDEX, default_account)]);
-
         // TODO implement loading from database
         Ok(MasterKeyChain {
             chain_config,
             root_key: master_key,
             db,
-            accounts,
         })
     }
 
     pub fn create_account_key_chain(
-        new_index: ChildNumber,
-    ) -> KeyChainResult<Arc<AccountKeyChain<B>>> {
-        Err(KeyChainError::MissingPrivateKey)
-    }
-
-    pub(crate) fn get_default_account_key_chain(&mut self) -> KeyChainResult<&AccountKeyChain<B>> {
-        Ok(self
-            .accounts
-            .get(&DEFAULT_ACCOUNT_INDEX)
-            .ok_or_else(|| KeyChainError::NoAccountFound(account_path(DEFAULT_ACCOUNT_INDEX)))?)
+        &self,
+        account_index: ChildNumber,
+    ) -> KeyChainResult<AccountKeyChain<B>> {
+        AccountKeyChain::new_from_root_key(
+            self.chain_config.clone(),
+            self.db.clone(),
+            &self.root_key,
+            account_index,
+        )
     }
 }
 
@@ -226,14 +232,14 @@ pub struct AccountKeyChain<B: Backend> {
     account_privkey: Option<ExtendedPrivateKey>,
 
     /// The derived destinations/addresses for each `KeyPurpose`. Those are derived as needed.
-    destinations: [BTreeMap<ChildNumber, Destination>; 2],
+    destinations: [BTreeMap<ChildNumber, Destination>; KeyPurpose::ALL.len()],
 
     /// Last used destination index per `KeyPurpose`. A destination might not be used so the
     /// corresponding entry would be None, otherwise it would be that last used ChildNumber
-    last_used: [Option<ChildNumber>; 2],
+    last_used: [Option<ChildNumber>; KeyPurpose::ALL.len()],
 
     /// Last issued destination to the user
-    last_issued: [Option<ChildNumber>; 2],
+    last_issued: [Option<ChildNumber>; KeyPurpose::ALL.len()],
 
     /// The number of unused addresses that need to be checked after the last used address
     lookahead_size: u16,
@@ -247,7 +253,7 @@ impl<B: Backend> AccountKeyChain<B> {
         root_key: &ExtendedPrivateKey,
         num: ChildNumber,
     ) -> KeyChainResult<AccountKeyChain<B>> {
-        let account_path = account_path(num);
+        let account_path = make_account_path(&chain_config, num);
 
         let account_privkey = root_key.clone().derive_path(&account_path)?;
 
@@ -266,12 +272,11 @@ impl<B: Backend> AccountKeyChain<B> {
     }
 
     /// Load all
-    pub fn load_from_database(
-        db: Arc<Store<B>>,
-        account_pubkey: ExtendedPublicKey,
-    ) -> KeyChainResult<Self> {
+    pub fn load_from_database(db: Arc<Store<B>>, id: KeyChainId) -> KeyChainResult<Self> {
         // TODO remove this
         let _ = db.get_storage_version().expect("This should work?");
+        let (account_privkey, account_pubkey) =
+            ExtendedPrivateKey::new_from_entropy(ExtendedKeyKind::Secp256k1Schnorr);
         let destinations = KeyPurpose::ALL.map(|_| BTreeMap::new());
         let last_used = KeyPurpose::ALL.map(|_| None);
         let last_issued = KeyPurpose::ALL.map(|_| None);
@@ -281,7 +286,7 @@ impl<B: Backend> AccountKeyChain<B> {
             chain_config: Arc::new(create_regtest()),
             db,
             account_pubkey,
-            account_privkey: None,
+            account_privkey: Some(account_privkey),
             destinations,
             last_used,
             last_issued,
@@ -289,12 +294,16 @@ impl<B: Backend> AccountKeyChain<B> {
         })
     }
 
+    pub fn get_id(&self) -> KeyChainId {
+        KeyChainId::Account(self.account_pubkey.clone().into_public_key())
+    }
+
     /// Get a new address that hasn't been used before
-    pub fn get_new_address(&self, purpose: KeyPurpose) -> KeyChainResult<Address> {
+    pub fn get_new_address(&mut self, purpose: KeyPurpose) -> KeyChainResult<Address> {
         // self.destinations.get(purpose).expect();
         let key = self.get_new_key(purpose)?;
 
-        let address = Address::from_public_key(&self.chain_config, &key.public_key())?;
+        let address = Address::from_public_key(&self.chain_config, &key.into_public_key())?;
 
         // TODO save address
 
@@ -302,21 +311,32 @@ impl<B: Backend> AccountKeyChain<B> {
     }
 
     /// Get a new derived key that hasn't been used before
-    pub fn get_new_key(&self, purpose: KeyPurpose) -> KeyChainResult<ExtendedPublicKey> {
-        let last_used = self.last_used[purpose as usize];
-
-        // TODO implement with correct paths
-        let hd_path = match purpose {
-            KeyPurpose::ReceiveFunds => DerivationPath::from_str("m/0'/0'/0'/0'")?,
-            KeyPurpose::Change => DerivationPath::from_str("m/0'/0'/1'/0'")?,
+    pub fn get_new_key(&mut self, purpose: KeyPurpose) -> KeyChainResult<ExtendedPublicKey> {
+        let new_last_used = {
+            match self.last_used[purpose as usize] {
+                None => ChildNumber::ZERO,
+                Some(last_used) => last_used.plus_one()?,
+            }
         };
+
+        // The path of the new key
+        let key_path = {
+            let mut path = self.account_pubkey.get_derivation_path().into_vec();
+            path.push(KeyPurpose::DETERMINISTIC_INDEX[purpose as usize]);
+            path.push(new_last_used);
+            path.try_into()?
+        };
+
         // TODO get key from a precalculated pool
         let new_key = self
             .account_privkey
             .as_ref()
             .ok_or(KeyChainError::MissingPrivateKey)?
             .clone()
-            .derive_path(&hd_path)?;
+            .derive_path(&key_path)?;
+        self.last_used[purpose as usize] = Some(new_last_used);
+        // TODO save last_used to db
+
         Ok(ExtendedPublicKey::from_private_key(&new_key))
     }
 
@@ -324,7 +344,7 @@ impl<B: Backend> AccountKeyChain<B> {
     pub(crate) fn get_key(&self, pk: &ExtendedPublicKey) -> KeyChainResult<ExtendedPrivateKey> {
         let account_privkey =
             self.account_privkey.clone().ok_or(KeyChainError::MissingPrivateKey)?;
-        Ok(account_privkey.derive_path(pk.get_derivation_path())?)
+        Ok(account_privkey.derive_path(&pk.get_derivation_path())?)
     }
 
     /// Derive destinations until there are lookahead unused ones
@@ -344,10 +364,9 @@ impl<B: Backend> AccountKeyChain<B> {
 }
 
 /// Create a deterministic path for an account identified by the `account_index`
-fn account_path(account_index: ChildNumber) -> DerivationPath {
-    let mut path = Vec::with_capacity(ACCOUNTS_PATH.len() + 1);
-    path.extend(ACCOUNTS_PATH);
-    path.push(account_index);
+fn make_account_path(chain_config: &ChainConfig, account_index: ChildNumber) -> DerivationPath {
+    // The path is m/44'/<coin_type>'/<account_index>'
+    let path = vec![BIP44_PATH, chain_config.bip44_index(), account_index];
     path.try_into().expect("Path creation should not fail")
 }
 
@@ -355,6 +374,7 @@ fn account_path(account_index: ChildNumber) -> DerivationPath {
 mod tests {
     use super::*;
     use common::chain::config::create_unit_test_config;
+    use std::str::FromStr;
     use test_utils::assert_encoded_eq;
     use wallet_storage::{DefaultBackend, Store};
 
@@ -364,41 +384,58 @@ mod tests {
     fn key_chain_creation() {
         let chain_config = Arc::new(create_unit_test_config());
         let db = Arc::new(Store::new(DefaultBackend::new_in_memory()).unwrap());
-        let mut master_key_chain =
+        let master_key_chain =
             MasterKeyChain::new_from_mnemonic(chain_config, db, MNEMONIC, None).unwrap();
 
-        let key_chain = master_key_chain.get_default_account_key_chain().unwrap();
+        let mut key_chain = master_key_chain.create_account_key_chain(ChildNumber::ZERO_H).unwrap();
 
         // Sort test vectors by key_index i.e. the key with index 0 should be first
         let test_vec = vec![
             (
                 KeyPurpose::ReceiveFunds,
-                "m/0'/0'/0'/0'",
-                "04feff4263658459430aea33cb851b830a0235db1611d3279624f40c7c2c0135",
-                "1ac0ee91fe1ff500f4b21579cda6ded3b10a2f9162d571b4c8873454f3593326",
-                "4fddb29b630431422b3a534e0028e053eb212ab10a5f1db3ba5cbc4e81ff3294",
+                "m/44'/19788'/0'/0/0",
+                "8000002c80004d4c800000000000000000000000",
+                "b870ce52f8ccb3204e7fcdbb84f122fee29ce3c462750c54d411201baa4cf23c",
+                "03bf6f8d52dade77f95e9c6c9488fd8492a99c09ff23095caffb2e6409d1746ade",
+                "0ae454a1024d0ddb9e10d23479cf8ef39fb400727fabd17844bd8362b1c70d7d",
             ),
             (
                 KeyPurpose::Change,
-                "m/0'/0'/1'/0'",
-                "404dafb8e79d3110e816be00e020a91ef1754ab6b2ada14ec87a26f87e86e19e",
-                "305f803928705f620e6a05dce2e4a6f8c03d1dc0757008096bf689160f394641",
-                "04e13b373ed3d5753657d375feec032187cdada01e5df83cc8fddd29c1f15755",
+                "m/44'/19788'/0'/1/0",
+                "8000002c80004d4c800000000000000100000000",
+                "f2b1cb7118920fe9b3a0470bd67588fb4bdd4af1355ff39171ed41e968a8621b",
+                "035df5d551bac1d61a5473615a70eb17b2f4ccbf7e354166639428941e4dbbcd81",
+                "8d62d08e7a23e4b510b970ffa84b4a5ed22e6c03faecf32c5dafaf092938516d",
+            ),
+            (
+                KeyPurpose::ReceiveFunds,
+                "m/44'/19788'/0'/0/1",
+                "8000002c80004d4c800000000000000000000001",
+                "f73943cf443cd5cdd6c35e3fc1c8f039dd92c29a3d9fc1f56c5145ad67535fba",
+                "030d1d07a8e45110d14f4e2c8623e8db556c11a90c0aac6be9a88f2464e446ee95",
+                "7ed12073a4cc61d8a79f3dc0dfc5ca1a23d9ce1fe3c1e92d3b6939cd5848a390",
             ),
         ];
 
-        // 004fddb29b630431422b3a534e0028e053eb212ab10a5f1db3ba5cbc4e81ff329404feff4263658459430aea33cb851b830a0235db1611d3279624f40c7c2c0135
-        // 000a8000002c80004d4c800000008000002c80004d4c80000000800000008000000080000000800000004b4e0dbdf974759800a2fa78adc2aa8355e149ed430f5dc4f6ae0880e53b7434abbd02eeeaa7c3afe6b1774fa3e6cc1dc4494e9b4ba5fe6e92268d6a1b3b009f
-        // 000a8000002c80004d4c800000008000002c80004d4c80000000800000008000000080000000800000004b4e0dbdf974759800a2fa78adc2aa8355e149ed430f5dc4f6ae0880e53b7434abbd02eeeaa7c3afe6b1774fa3e6cc1dc4494e9b4ba5fe6e92268d6a1b3b009f
-        // 00088000000080000000800000008000000080000000800000008000000080000000d7e91f5e96b60315176b274b9124a081903aa51e923df2cc9a57aabc3efef5d46ca086193debd51ccbb18dc73347985826a040066e0b507d356e827aeb89ab6b
-
-        for (purpose, _hd_path, secret, public, chaincode) in test_vec {
+        for (purpose, path_str, path_encoded_str, secret, public, chaincode) in test_vec {
             let pk = key_chain.get_new_key(purpose).unwrap();
+            assert_eq!(pk.get_derivation_path().to_string(), path_str.to_string());
             let sk = key_chain.get_key(&pk).unwrap();
-            let pk = ExtendedPublicKey::from_private_key(&sk);
-            // TODO assert that the hd_path is correct
-            assert_encoded_eq(&sk, format!("00{chaincode}{secret}").as_str());
-            assert_encoded_eq(&pk, format!("00{chaincode}{public}").as_str());
+            let pk2 = ExtendedPublicKey::from_private_key(&sk);
+            assert_eq!(pk2.get_derivation_path().to_string(), path_str.to_string());
+            assert_eq!(pk, pk2);
+            let path = DerivationPath::from_str(path_str).unwrap();
+            assert_eq!(sk.get_derivation_path(), path);
+            assert_eq!(pk.get_derivation_path(), path);
+            let path_len = path.len();
+            assert_encoded_eq(
+                &sk,
+                format!("00{path_len:02x}{path_encoded_str}{chaincode}{secret}").as_str(),
+            );
+            assert_encoded_eq(
+                &pk,
+                format!("00{path_len:02x}{path_encoded_str}{chaincode}{public}").as_str(),
+            );
         }
     }
 }
